@@ -681,3 +681,32 @@ class TestEditCrlfNormalization:
         final = (tmp_path / "history.md").read_text()
         assert "## Summary 2" in final
         assert "Human: next" in final
+
+
+class TestEditTrailingNewlineMismatch:
+    """Tests for trailing-newline mismatch in edit(). See #2856.
+
+    read_file strips the trailing newline (splitlines + join), so the LLM
+    sees content without one. LLMs nevertheless often append a trailing newline
+    to old_string because they know well-formed files end with one. When the
+    file itself has no trailing newline the count hits 0 and the edit fails silently.
+    """
+
+    def test_edit_fails_when_old_string_has_trailing_newline_but_file_does_not(self, tmp_path: Path):
+        """Reporter repro: file has no trailing newline, LLM old_string does.
+
+        Matches the exact pattern from issue #2856: the file was written without
+        a trailing newline but the LLM appended one to old_string. count() returns
+        0 and the edit fails with 'String not found in file'.
+        """
+        be = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
+        be.write("/memories/AGENTS.md", "# Agent Role\nyou are an assistant.")
+
+        result = be.edit(
+            "/memories/AGENTS.md",
+            "# Agent Role\nyou are an assistant.\n",  # trailing \n — LLM added it
+            "# Agent Role\nyou are an assistant.\nusername: ben",
+        )
+
+        assert result.error is None  # currently FAILS: "String not found in file"
+        assert result.occurrences == 1
